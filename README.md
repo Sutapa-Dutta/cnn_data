@@ -117,14 +117,73 @@ df_train=df_train[0:80]
 df_val=df_val[0:20]
 
 
-
-
+==================
 lo=[]
 la=[]
 alpha=0.01
 from torch.nn import CrossEntropyLoss
 loss_fct=nn.CrossEntropyLoss()
 
+
+def training_loop(train_dataloader, model, optimizer, scheduler):
+    model.train()
+    train_loss=[]
+    for bi, d in enumerate(train_dataloader):
+        input_ids = d["input_ids"]
+        attention_mask = d["attention_mask"]
+        output_ids = d["output_ids"]
+        output_ids_corrupted=d["output_ids_corrupted"]
+
+        input_ids = input_ids.to(device, dtype=torch.long)
+        attention_mask = attention_mask.to(device, dtype=torch.long)
+        output_ids = output_ids.to(device, dtype=torch.long)
+        output_ids_corrupted=output_ids_corrupted.to(device,dtype=torch.long)
+#         logits = model(inputs)[0]
+
+        outputs = model(input_ids=input_ids, 
+                        attention_mask=attention_mask, 
+                        labels=output_ids,                      
+                       ) 
+        print('la',output_ids.shape)
+        la.append(output_ids)
+
+    #         print(outputs)
+    
+#         loss = outputs.loss
+        logits=outputs.logits
+        print('lo',logits.shape)
+        lo.append(logits)
+        
+        loss1=loss_fct(logits.reshape(-1,config.vocab_size),output_ids.view(-1))
+        loss2=loss_fct(logits.reshape(-1,config.vocab_size),output_ids_corrupted.view(-1))
+
+        
+        loss=loss1*alpha*loss2
+
+
+        train_loss.append(loss.item())
+        if bi%1==0:
+            print('train_loss', bi, loss.item())
+        
+        loss.backward()
+        optimizer.step()
+
+        if scheduler is not None:
+            scheduler.step()
+            
+    return model, mean(train_loss) 
+
+
+
+
+============
+
+alpha=0.01
+from torch.nn import CrossEntropyLoss
+loss_fct=nn.CrossEntropyLoss()
+
+
+# edited
 
 def validation_loop(val_dataloader, model):
     model.eval() 
@@ -136,16 +195,26 @@ def validation_loop(val_dataloader, model):
             input_ids = d["input_ids"]
             attention_mask = d["attention_mask"]
             output_ids = d["output_ids"]
+            output_ids_corrupted=d["output_ids_corrupted"]
 
             input_ids = input_ids.to(device, dtype=torch.long)
             attention_mask = attention_mask.to(device, dtype=torch.long)
             output_ids = output_ids.to(device, dtype=torch.long)
+            output_ids_corrupted=output_ids_corrupted.to(device, dtype=torch.long)
             
             outputs = model(input_ids=input_ids, 
                             attention_mask=attention_mask, 
                             labels=output_ids
                            ) 
-            loss = outputs.loss
+            
+            logits=outputs.logits
+            loss1=loss_fct(logits.reshape(-1,config.vocab_size),output_ids.view(-1))
+            loss2=loss_fct(logits.reshape(-1,config.vocab_size),output_ids_corrupted.view(-1))
+
+        
+            loss=loss1*alpha*loss2
+
+#             loss = outputs.loss
             val_loss.append(loss.item())
             
             preds_ids = model.generate(input_ids, max_length=128, num_return_sequences=1)
@@ -156,15 +225,3 @@ def validation_loop(val_dataloader, model):
                 bleu.append(score)
             
     return model, mean(val_loss), mean(bleu) 
-    
-    
-    
-    
-    
-    
-    
-    
-    
-    
-
-
